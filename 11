@@ -30,3 +30,24 @@ db.AppDatacenterStackSummary.findOne({ runId: RUNID })
 
 var rid = Number(db.AppDatacenterRunSettings.findOne({ _id: "WRW_WIMA_RUN_ID" }).value);
 db.AppDatacenterStackComponentSummary.countDocuments({ runId: rid }, { maxTimeMS: 60000 })
+
+
+db.AppDatacenterStackComponentSummary.aggregate([
+  { $match: { runId: 7301 } },
+  { $group: {
+      _id: "$stack",
+      rows: { $sum: 1 },
+      withHostedType: { $sum: { $cond: [{ $ifNull: ["$hostedComponentType", false] }, 1, 0] } },
+      withHostedComponent: { $sum: { $cond: [{ $ifNull: ["$hostedComponent", false] }, 1, 0] } }
+  } },
+  { $sort: { _id: 1 } }
+]);
+
+
+db.AppDatacenterStackComponentSummary.aggregate([
+  { $match: { runId: 7301 } },
+  { $group: { _id: { stack: "$stack", subStack: "$subStack" }, rows: { $sum: 1 } } },
+  { $sort: { "_id.stack": 1, "_id.subStack": 1 } }
+]);
+
+db.AppDatacenterStackComponentSummary.find({ runId: 7301, stack: "DB" }).limit(5);
