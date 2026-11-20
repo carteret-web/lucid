@@ -1,1 +1,4 @@
 Get-ChildItem $root -Directory | ForEach-Object { if (Test-Path "$($_.FullName)\.git") { $_.Name + " : " + (git -C $_.FullName config --local --get user.name) + " / " + (git -C $_.FullName config --local --get user.email) } }
+
+Get-ChildItem $root -Directory | ForEach-Object { $d = $_.FullName; if (Test-Path "$d\.git") { $c = (git -C $d status --short | Measure-Object).Count; $a = (git -C $d log --oneline "@{u}..HEAD" 2>$null | Measure-Object).Count; $_.Name + " : uncommitted=" + $c + " unpushed=" + $a } }
+
