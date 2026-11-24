@@ -1,0 +1,25 @@
+I work in the Git repo repo. The default branch is main and it is protected: changes must go through a pull request. Direct pushes to the branch <name> were rejected.
+
+Please do this step by step, show me each git command before you run it, and wait for my OK before any command that publishes (git push) or creates the pull request.
+
+1. Run git status and git branch --show-current. Tell me which branch I am on and list the changed files.
+2. Create a new branch from main named <NEW-BRANCH-NAME>, and keep my uncommitted changes. If I already committed on another branch, show me the commits first and ask me what to do.
+3. Stage only the export-related files that I changed. Do NOT stage .vscode/launch.json, .npmrc, any *.env file, package-lock.json, node_modules or build output. If something unexpected is in the list, ask me.
+4. Commit with this message: "<name>: add export to incidents and changes dialogs" (adjust it if the changed files show something different).
+5. Push the branch with: git push -u origin <NEW-BRANCH-NAME>
+6. Create a pull request into main from <NEW-BRANCH-NAME>:
+   Title: <name>: export functionality
+   Description: what the change adds (export button and export of the visible rows to Excel in the incidents and changes dialogs, and in the relationship tables), the ticket <name>, and how to test it (open a dialog, click Export, check the downloaded file).
+   If you cannot create the pull request yourself, give me the exact link and the text to paste into the GitHub page.
+
+Do not include any tokens, passwords or secrets in commits, messages or the description.
+
+
+Base branch main is protected, so use a pull request. Work step by step and show me each git command before running it. Ask me before push and before creating the PR.
+1. Show git status and the current branch.
+2. Create a branch <NAME> from main, keep my changes. Never commit on main.
+3. Stage only the files for this change. Never stage .vscode/launch.json, .npmrc, *.env, package-lock.json, node_modules.
+4. Commit with message: <MESSAGE>
+5. git push -u origin <NAME>
+6. Create a pull request into main. Title = the message. Description = what changed and how to test it. If you can't, give me the link and the text.
+No secrets anywhere. If a command fails, show the error and stop.
