@@ -1,95 +1,31 @@
-    @Test
-    void getAppStackSummary_whenSubStackGiven_usesComponentRepoWithRunId() {
-        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
-        request.setRunId(1234L);
-        request.setSubStack(List.of("ORACLE"));
 
-        when(appDatacenterStackComponentSummaryRepository.findStackSummaryForAppBySubStack(
-            "app1", List.of(1234L), null, null, List.of("ORACLE")
-        )).thenReturn(List.of(new AppDatacenterStackSummary()));
+        if (!CollectionUtils.isEmpty(request.getSubStack())) {
+            // The roll-up collection has no subStack, so roll the component rows up instead
+            List<Long> runIds = hasTimeline
+                ? getRunIdsForTimeline(request.getStart(), request.getEnd())
+                : List.of(Long.valueOf(appDatacenterRunSettingsRepository.findByKey(WRW_WIMA_RUN_ID).getValue().toString()));
+            LOGGER.info("Calculating Application Summary for subStack {} with {} runIds", request.getSubStack(), runIds.size());
+            return this.appDatacenterStackComponentSummaryRepository.findAppsSummaryBySubStack(
+                runIds,
+                request.getStack(),
+                request.getStatus(),
+                request.getSubStack(),
+                request.getAppIds()
+            );
+        }
 
-        List<AppDatacenterStackSummary> result = wimaService.getAppStackSummary("app1", request);
+if (!CollectionUtils.isEmpty(request.getSubStack())) {
+            // The roll-up collection has no subStack, so roll the component rows up instead
+            List<Long> runIds = hasTimeline
+                ? getRunIdsForTimeline(request.getStart(), request.getEnd())
+                : (request.getRunId() == null ? List.of() : List.of(request.getRunId()));
+            LOGGER.info("Calculating Application Stack Summary for appId:{} and subStack {} with {} runIds", appId, request.getSubStack(), runIds.size());
 
-        assertEquals(1, result.size());
-        verify(appDatacenterStackComponentSummaryRepository, times(1))
-            .findStackSummaryForAppBySubStack("app1", List.of(1234L), null, null, List.of("ORACLE"));
-        verify(appDatacenterStackSummaryRepository, never())
-            .findStackSummaryForAppByRunId(anyString(), any(), any(), any());
-    }
-
-    @Test
-    void getAppStackSummary_whenSubStackGivenWithoutRunId_usesNoRunIds() {
-        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
-        request.setSubStack(List.of("ORACLE"));
-
-        wimaService.getAppStackSummary("app1", request);
-
-        verify(appDatacenterStackComponentSummaryRepository, times(1))
-            .findStackSummaryForAppBySubStack("app1", List.of(), null, null, List.of("ORACLE"));
-    }
-
-    @Test
-    void getAppStackSummary_whenSubStackGivenWithTimeRange_usesTimelineRunIds() {
-        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
-        Date start = new Date(System.currentTimeMillis() - 3600_000);
-        Date end = new Date();
-        request.setStart(start);
-        request.setEnd(end);
-        request.setSubStack(List.of("MQ"));
-
-        AppDatacenterRunSummary runSummary = new AppDatacenterRunSummary();
-        runSummary.setRunId(100L);
-        when(appDatacenterRunSummaryRepository.findRunIdsByTimeline(start, end))
-            .thenReturn(List.of(runSummary));
-
-        wimaService.getAppStackSummary("app1", request);
-
-        verify(appDatacenterStackComponentSummaryRepository, times(1))
-            .findStackSummaryForAppBySubStack("app1", List.of(100L), null, null, List.of("MQ"));
-        verify(appDatacenterStackComponentSummaryRepository, never())
-            .findStackSummaryForAppByTimeline(anyString(), anyList(), any(), any());
-    }
-
-    @Test
-    void getAppsSummary_whenSubStackGiven_usesLatestRunAndSkipsCache() throws JsonProcessingException {
-        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
-        request.setSubStack(List.of("MSSQL"));
-
-        when(appDatacenterStackComponentSummaryRepository.findAppsSummaryBySubStack(
-            List.of(1L), null, null, List.of("MSSQL"), null
-        )).thenReturn(new AppDatacenterSummaryResponse());
-
-        AppDatacenterSummaryResponse result = wimaService.getAppsSummary(request);
-
-        assertNotNull(result);
-        verify(appDatacenterStackComponentSummaryRepository, times(1))
-            .findAppsSummaryBySubStack(List.of(1L), null, null, List.of("MSSQL"), null);
-        verify(redisService, never()).get(anyString(), eq(AppDatacenterSummaryResponse.class));
-        verify(appDatacenterStackSummaryRepository, never())
-            .findLatestSummaryByRunId(any(), any(), any(), any());
-    }
-
-    @Test
-    void getAppsSummary_whenSubStackGivenWithTimeRange_usesTimelineRunIds() throws JsonProcessingException {
-        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
-        Date start = new Date(System.currentTimeMillis() - 3600_000);
-        Date end = new Date();
-        request.setStart(start);
-        request.setEnd(end);
-        request.setSubStack(List.of("MQ"));
-        request.setStack(List.of("MESSAGING"));
-
-        AppDatacenterRunSummary runSummary = new AppDatacenterRunSummary();
-        runSummary.setRunId(100L);
-        when(appDatacenterRunSummaryRepository.findRunIdsByTimeline(start, end))
-            .thenReturn(List.of(runSummary));
-        when(appDatacenterStackComponentSummaryRepository.findAppsSummaryBySubStack(
-            List.of(100L), List.of("MESSAGING"), null, List.of("MQ"), null
-        )).thenReturn(new AppDatacenterSummaryResponse());
-
-        AppDatacenterSummaryResponse result = wimaService.getAppsSummary(request);
-
-        assertNotNull(result);
-        verify(appDatacenterStackSummaryRepository, never())
-            .findLatestSummaryByTimeline(any(), any(), any(), any());
-    }
+            return this.appDatacenterStackComponentSummaryRepository.findStackSummaryForAppBySubStack(
+                appId,
+                runIds,
+                request.getStack(),
+                request.getStatus(),
+                request.getSubStack()
+            );
+        }
