@@ -1,149 +1,95 @@
-    /**
-     * Level 2 view when a subStack filter is given (the roll-up collection has no subStack).
-     */
-    @Aggregation(pipeline = {
-        "{ '$match': { '$and': [ " +
-            "{ 'appId': ?0 }, " +
-            "{ 'runId': { '$in': ?1 } }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?2, [] ] } }, 0 ] } }, " +
-            "   { 'stack': { '$in': ?2 } } " +
-            "] }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?3, [] ] } }, 0 ] } }, " +
-            "   { 'status': { '$in': ?3 } } " +
-            "] }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?4, [] ] } }, 0 ] } }, " +
-            "   { 'subStack': { '$in': ?4 } } " +
-            "] } " +
-            "] } }",
+    @Test
+    void getAppStackSummary_whenSubStackGiven_usesComponentRepoWithRunId() {
+        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
+        request.setRunId(1234L);
+        request.setSubStack(List.of("ORACLE"));
 
-        // Keep only fields needed for dedupe + status rollup
-        "{ '$project': { " +
-            "'appId': 1, 'datacenter': 1, 'stack': 1, 'component': 1, " +
-            "'priority': { '$switch': { " +
-            "  'branches': [ " +
-            "    { 'case': { '$eq': [ '$status', 'ACTIVE' ] }, 'then': 0 }, " +
-            "    { 'case': { '$eq': [ '$status', 'IDLE' ] }, 'then': 1 }, " +
-            "    { 'case': { '$eq': [ '$status', 'DEPLOYED_ONLY' ] }, 'then': 2 } " +
-            "  ], 'default': 999 } } " +
-            "} }",
+        when(appDatacenterStackComponentSummaryRepository.findStackSummaryForAppBySubStack(
+            "app1", List.of(1234L), null, null, List.of("ORACLE")
+        )).thenReturn(List.of(new AppDatacenterStackSummary()));
 
-        // Dedupe per component by best status priority
-        "{ '$group': { " +
-            "'_id': { 'appId': '$appId', 'datacenter': '$datacenter', 'stack': '$stack', 'component': '$component' }, " +
-            "'bestPriority': { '$min': '$priority' } " +
-            "} }",
+        List<AppDatacenterStackSummary> result = wimaService.getAppStackSummary("app1", request);
 
-        // Roll up to app/datacenter/stack (Level 2 shape)
-        "{ '$group': { " +
-            "'_id': { 'appId': '$_id.appId', 'datacenter': '$_id.datacenter', 'stack': '$_id.stack' }, " +
-            "'deployed': { '$sum': 1 }, " +
-            "'active': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 0 ] }, 1, 0 ] } }, " +
-            "'idle': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 1 ] }, 1, 0 ] } }, " +
-            "'deployedOnly': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 2 ] }, 1, 0 ] } } " +
-            "} }",
+        assertEquals(1, result.size());
+        verify(appDatacenterStackComponentSummaryRepository, times(1))
+            .findStackSummaryForAppBySubStack("app1", List.of(1234L), null, null, List.of("ORACLE"));
+        verify(appDatacenterStackSummaryRepository, never())
+            .findStackSummaryForAppByRunId(anyString(), any(), any(), any());
+    }
 
-        "{ '$addFields': { " +
-            "'status': { '$switch': { " +
-            "  'branches': [ " +
-            "    { 'case': { '$eq': [ '$active', '$deployed' ] }, 'then': 'ACTIVE' }, " +
-            "    { 'case': { '$eq': [ '$idle', '$deployed' ] }, 'then': 'IDLE' }, " +
-            "    { 'case': { '$eq': [ '$deployedOnly', '$deployed' ] }, 'then': 'DEPLOYED_ONLY' }, " +
-            "    { 'case': { '$and': [ { '$gt': [ '$active', 0 ] }, { '$gt': [ '$idle', 0 ] }, { '$eq': [ '$deployedOnly', 0 ] } ] }, 'then': 'ACTIVE_AND_IDLE' }, " +
-            "    { 'case': { '$and': [ { '$gt': [ '$active', 0 ] }, { '$gt': [ '$deployedOnly', 0 ] }, { '$eq': [ '$idle', 0 ] } ] }, 'then': 'ACTIVE_AND_DEPLOYED_ONLY' }, " +
-            "    { 'case': { '$and': [ { '$gt': [ '$idle', 0 ] }, { '$gt': [ '$deployedOnly', 0 ] }, { '$eq': [ '$active', 0 ] } ] }, 'then': 'IDLE_AND_DEPLOYED_ONLY' }, " +
-            "    { 'case': { '$and': [ { '$gt': [ '$active', 0 ] }, { '$gt': [ '$idle', 0 ] }, { '$gt': [ '$deployedOnly', 0 ] } ] }, 'then': 'ACTIVE_IDLE_DEPLOYED_ONLY' } " +
-            "  ], 'default': 'UNKNOWN' } } " +
-            "} }",
+    @Test
+    void getAppStackSummary_whenSubStackGivenWithoutRunId_usesNoRunIds() {
+        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
+        request.setSubStack(List.of("ORACLE"));
 
-        "{ '$project': { " +
-            "'_id': 0, " +
-            "'appId': '$_id.appId', " +
-          "'datacenter': '$_id.datacenter', " +
-          "'stack': '$_id.stack', " +
-          "'deployed': 1, " +
-            "'active': 1, " +
-            "'deployedOnly': 1, " +
-            "'idle': 1, " +
-            "'status': 1, " +
-            "'runId': null, " +
-            "'evaluatedAt': null " +
-            "} }"
-    })
-    List<AppDatacenterStackSummary> findStackSummaryForAppBySubStack(
-        String appId,
-        List<Long> runIds,
-        List<String> stack,
-        List<String> status,
-        List<String> subStack
-    );
+        wimaService.getAppStackSummary("app1", request);
 
-    /**
-     * Level 1 view when a subStack filter is given. The roll-up collection has no subStack, so this
-     * rolls the component rows up per app and datacenter (same counting rules as the timeline summary).
-     */
-    @Meta(allowDiskUse = "true")
-    @Aggregation(pipeline = {
-        "{ '$match': { '$and': [ " +
-            "{ 'runId': { '$in': ?0 } }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?1, [] ] } }, 0 ] } }, " +
-            "   { 'stack': { '$in': ?1 } } " +
-            "] }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?2, [] ] } }, 0 ] } }, " +
-            "   { 'status': { '$in': ?2 } } " +
-            "] }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?3, [] ] } }, 0 ] } }, " +
-            "   { 'subStack': { '$in': ?3 } } " +
-            "] }, " +
-            "{ '$or': [ " +
-            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?4, [] ] } }, 0 ] } }, " +
-            "   { 'appId': { '$in': ?4 } } " +
-            "] } " +
-            "] } }",
+        verify(appDatacenterStackComponentSummaryRepository, times(1))
+            .findStackSummaryForAppBySubStack("app1", List.of(), null, null, List.of("ORACLE"));
+    }
 
-        "{ '$project': { " +
-            "'appId': 1, 'datacenter': 1, 'stack': 1, 'component': 1, " +
-            "'priority': { '$switch': { " +
-            "  'branches': [ " +
-            "    { 'case': { '$eq': [ '$status', 'ACTIVE' ] }, 'then': 0 }, " +
-            "    { 'case': { '$eq': [ '$status', 'IDLE' ] }, 'then': 1 }, " +
-            "    { 'case': { '$eq': [ '$status', 'DEPLOYED_ONLY' ] }, 'then': 2 } " +
-            "  ], 'default': 999 } } " +
-            "} }",
+    @Test
+    void getAppStackSummary_whenSubStackGivenWithTimeRange_usesTimelineRunIds() {
+        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
+        Date start = new Date(System.currentTimeMillis() - 3600_000);
+        Date end = new Date();
+        request.setStart(start);
+        request.setEnd(end);
+        request.setSubStack(List.of("MQ"));
 
-        "{ '$group': { " +
-            "'_id': { 'appId': '$appId', 'datacenter': '$datacenter', 'stack': '$stack', 'component': '$component' }, " +
-            "'bestPriority': { '$min': '$priority' } " +
-            "} }",
+        AppDatacenterRunSummary runSummary = new AppDatacenterRunSummary();
+        runSummary.setRunId(100L);
+        when(appDatacenterRunSummaryRepository.findRunIdsByTimeline(start, end))
+            .thenReturn(List.of(runSummary));
 
-        "{ '$group': { " +
-            "'_id': { 'appId': '$_id.appId', 'datacenter': '$_id.datacenter' }, " +
-            "'deployed': { '$sum': 1 }, " +
-            "'active': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 0 ] }, 1, 0 ] } }, " +
-            "'idle': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 1 ] }, 1, 0 ] } }, " +
-            "'deployedOnly': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 2 ] }, 1, 0 ] } } " +
-            "} }",
+        wimaService.getAppStackSummary("app1", request);
 
-        "{ '$project': { " +
-            "'_id': 0, " +
-            "'appId': '$_id.appId', " +
-            "'datacenter': '$_id.datacenter', " +
-            "'deployed': 1, 'active': 1, 'deployedOnly': 1, 'idle': 1 " +
-            "} }",
+        verify(appDatacenterStackComponentSummaryRepository, times(1))
+            .findStackSummaryForAppBySubStack("app1", List.of(100L), null, null, List.of("MQ"));
+        verify(appDatacenterStackComponentSummaryRepository, never())
+            .findStackSummaryForAppByTimeline(anyString(), anyList(), any(), any());
+    }
 
-        "{ '$group': { '_id': null, 'data': { '$push': '$$ROOT' } } }",
-        "{ '$project': { '_id': 0, 'runId': null, 'evaluatedAt': null, 'data': 1 } }"
-    })
-    AppDatacenterSummaryResponse findAppsSummaryBySubStack(
-        List<Long> runIds,
-        List<String> stack,
-        List<String> status,
-        List<String> subStack,
-        List<String> appIds
-    );
+    @Test
+    void getAppsSummary_whenSubStackGiven_usesLatestRunAndSkipsCache() throws JsonProcessingException {
+        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
+        request.setSubStack(List.of("MSSQL"));
 
+        when(appDatacenterStackComponentSummaryRepository.findAppsSummaryBySubStack(
+            List.of(1L), null, null, List.of("MSSQL"), null
+        )).thenReturn(new AppDatacenterSummaryResponse());
+
+        AppDatacenterSummaryResponse result = wimaService.getAppsSummary(request);
+
+        assertNotNull(result);
+        verify(appDatacenterStackComponentSummaryRepository, times(1))
+            .findAppsSummaryBySubStack(List.of(1L), null, null, List.of("MSSQL"), null);
+        verify(redisService, never()).get(anyString(), eq(AppDatacenterSummaryResponse.class));
+        verify(appDatacenterStackSummaryRepository, never())
+            .findLatestSummaryByRunId(any(), any(), any(), any());
+    }
+
+    @Test
+    void getAppsSummary_whenSubStackGivenWithTimeRange_usesTimelineRunIds() throws JsonProcessingException {
+        WimaAppDatacenterSummaryRequest request = new WimaAppDatacenterSummaryRequest();
+        Date start = new Date(System.currentTimeMillis() - 3600_000);
+        Date end = new Date();
+        request.setStart(start);
+        request.setEnd(end);
+        request.setSubStack(List.of("MQ"));
+        request.setStack(List.of("MESSAGING"));
+
+        AppDatacenterRunSummary runSummary = new AppDatacenterRunSummary();
+        runSummary.setRunId(100L);
+        when(appDatacenterRunSummaryRepository.findRunIdsByTimeline(start, end))
+            .thenReturn(List.of(runSummary));
+        when(appDatacenterStackComponentSummaryRepository.findAppsSummaryBySubStack(
+            List.of(100L), List.of("MESSAGING"), null, List.of("MQ"), null
+        )).thenReturn(new AppDatacenterSummaryResponse());
+
+        AppDatacenterSummaryResponse result = wimaService.getAppsSummary(request);
+
+        assertNotNull(result);
+        verify(appDatacenterStackSummaryRepository, never())
+            .findLatestSummaryByTimeline(any(), any(), any(), any());
+    }
