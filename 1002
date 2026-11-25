@@ -1,25 +1,149 @@
-I work in the Git repo repo. The default branch is main and it is protected: changes must go through a pull request. Direct pushes to the branch <name> were rejected.
+    /**
+     * Level 2 view when a subStack filter is given (the roll-up collection has no subStack).
+     */
+    @Aggregation(pipeline = {
+        "{ '$match': { '$and': [ " +
+            "{ 'appId': ?0 }, " +
+            "{ 'runId': { '$in': ?1 } }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?2, [] ] } }, 0 ] } }, " +
+            "   { 'stack': { '$in': ?2 } } " +
+            "] }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?3, [] ] } }, 0 ] } }, " +
+            "   { 'status': { '$in': ?3 } } " +
+            "] }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?4, [] ] } }, 0 ] } }, " +
+            "   { 'subStack': { '$in': ?4 } } " +
+            "] } " +
+            "] } }",
 
-Please do this step by step, show me each git command before you run it, and wait for my OK before any command that publishes (git push) or creates the pull request.
+        // Keep only fields needed for dedupe + status rollup
+        "{ '$project': { " +
+            "'appId': 1, 'datacenter': 1, 'stack': 1, 'component': 1, " +
+            "'priority': { '$switch': { " +
+            "  'branches': [ " +
+            "    { 'case': { '$eq': [ '$status', 'ACTIVE' ] }, 'then': 0 }, " +
+            "    { 'case': { '$eq': [ '$status', 'IDLE' ] }, 'then': 1 }, " +
+            "    { 'case': { '$eq': [ '$status', 'DEPLOYED_ONLY' ] }, 'then': 2 } " +
+            "  ], 'default': 999 } } " +
+            "} }",
 
-1. Run git status and git branch --show-current. Tell me which branch I am on and list the changed files.
-2. Create a new branch from main named <NEW-BRANCH-NAME>, and keep my uncommitted changes. If I already committed on another branch, show me the commits first and ask me what to do.
-3. Stage only the export-related files that I changed. Do NOT stage .vscode/launch.json, .npmrc, any *.env file, package-lock.json, node_modules or build output. If something unexpected is in the list, ask me.
-4. Commit with this message: "<name>: add export to incidents and changes dialogs" (adjust it if the changed files show something different).
-5. Push the branch with: git push -u origin <NEW-BRANCH-NAME>
-6. Create a pull request into main from <NEW-BRANCH-NAME>:
-   Title: <name>: export functionality
-   Description: what the change adds (export button and export of the visible rows to Excel in the incidents and changes dialogs, and in the relationship tables), the ticket <name>, and how to test it (open a dialog, click Export, check the downloaded file).
-   If you cannot create the pull request yourself, give me the exact link and the text to paste into the GitHub page.
+        // Dedupe per component by best status priority
+        "{ '$group': { " +
+            "'_id': { 'appId': '$appId', 'datacenter': '$datacenter', 'stack': '$stack', 'component': '$component' }, " +
+            "'bestPriority': { '$min': '$priority' } " +
+            "} }",
 
-Do not include any tokens, passwords or secrets in commits, messages or the description.
+        // Roll up to app/datacenter/stack (Level 2 shape)
+        "{ '$group': { " +
+            "'_id': { 'appId': '$_id.appId', 'datacenter': '$_id.datacenter', 'stack': '$_id.stack' }, " +
+            "'deployed': { '$sum': 1 }, " +
+            "'active': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 0 ] }, 1, 0 ] } }, " +
+            "'idle': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 1 ] }, 1, 0 ] } }, " +
+            "'deployedOnly': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 2 ] }, 1, 0 ] } } " +
+            "} }",
 
+        "{ '$addFields': { " +
+            "'status': { '$switch': { " +
+            "  'branches': [ " +
+            "    { 'case': { '$eq': [ '$active', '$deployed' ] }, 'then': 'ACTIVE' }, " +
+            "    { 'case': { '$eq': [ '$idle', '$deployed' ] }, 'then': 'IDLE' }, " +
+            "    { 'case': { '$eq': [ '$deployedOnly', '$deployed' ] }, 'then': 'DEPLOYED_ONLY' }, " +
+            "    { 'case': { '$and': [ { '$gt': [ '$active', 0 ] }, { '$gt': [ '$idle', 0 ] }, { '$eq': [ '$deployedOnly', 0 ] } ] }, 'then': 'ACTIVE_AND_IDLE' }, " +
+            "    { 'case': { '$and': [ { '$gt': [ '$active', 0 ] }, { '$gt': [ '$deployedOnly', 0 ] }, { '$eq': [ '$idle', 0 ] } ] }, 'then': 'ACTIVE_AND_DEPLOYED_ONLY' }, " +
+            "    { 'case': { '$and': [ { '$gt': [ '$idle', 0 ] }, { '$gt': [ '$deployedOnly', 0 ] }, { '$eq': [ '$active', 0 ] } ] }, 'then': 'IDLE_AND_DEPLOYED_ONLY' }, " +
+            "    { 'case': { '$and': [ { '$gt': [ '$active', 0 ] }, { '$gt': [ '$idle', 0 ] }, { '$gt': [ '$deployedOnly', 0 ] } ] }, 'then': 'ACTIVE_IDLE_DEPLOYED_ONLY' } " +
+            "  ], 'default': 'UNKNOWN' } } " +
+            "} }",
 
-Base branch main is protected, so use a pull request. Work step by step and show me each git command before running it. Ask me before push and before creating the PR.
-1. Show git status and the current branch.
-2. Create a branch <NAME> from main, keep my changes. Never commit on main.
-3. Stage only the files for this change. Never stage .vscode/launch.json, .npmrc, *.env, package-lock.json, node_modules.
-4. Commit with message: <MESSAGE>
-5. git push -u origin <NAME>
-6. Create a pull request into main. Title = the message. Description = what changed and how to test it. If you can't, give me the link and the text.
-No secrets anywhere. If a command fails, show the error and stop.
+        "{ '$project': { " +
+            "'_id': 0, " +
+            "'appId': '$_id.appId', " +
+          "'datacenter': '$_id.datacenter', " +
+          "'stack': '$_id.stack', " +
+          "'deployed': 1, " +
+            "'active': 1, " +
+            "'deployedOnly': 1, " +
+            "'idle': 1, " +
+            "'status': 1, " +
+            "'runId': null, " +
+            "'evaluatedAt': null " +
+            "} }"
+    })
+    List<AppDatacenterStackSummary> findStackSummaryForAppBySubStack(
+        String appId,
+        List<Long> runIds,
+        List<String> stack,
+        List<String> status,
+        List<String> subStack
+    );
+
+    /**
+     * Level 1 view when a subStack filter is given. The roll-up collection has no subStack, so this
+     * rolls the component rows up per app and datacenter (same counting rules as the timeline summary).
+     */
+    @Meta(allowDiskUse = "true")
+    @Aggregation(pipeline = {
+        "{ '$match': { '$and': [ " +
+            "{ 'runId': { '$in': ?0 } }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?1, [] ] } }, 0 ] } }, " +
+            "   { 'stack': { '$in': ?1 } } " +
+            "] }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?2, [] ] } }, 0 ] } }, " +
+            "   { 'status': { '$in': ?2 } } " +
+            "] }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?3, [] ] } }, 0 ] } }, " +
+            "   { 'subStack': { '$in': ?3 } } " +
+            "] }, " +
+            "{ '$or': [ " +
+            "   { '$expr': { '$eq': [ { '$size': { '$ifNull': [ ?4, [] ] } }, 0 ] } }, " +
+            "   { 'appId': { '$in': ?4 } } " +
+            "] } " +
+            "] } }",
+
+        "{ '$project': { " +
+            "'appId': 1, 'datacenter': 1, 'stack': 1, 'component': 1, " +
+            "'priority': { '$switch': { " +
+            "  'branches': [ " +
+            "    { 'case': { '$eq': [ '$status', 'ACTIVE' ] }, 'then': 0 }, " +
+            "    { 'case': { '$eq': [ '$status', 'IDLE' ] }, 'then': 1 }, " +
+            "    { 'case': { '$eq': [ '$status', 'DEPLOYED_ONLY' ] }, 'then': 2 } " +
+            "  ], 'default': 999 } } " +
+            "} }",
+
+        "{ '$group': { " +
+            "'_id': { 'appId': '$appId', 'datacenter': '$datacenter', 'stack': '$stack', 'component': '$component' }, " +
+            "'bestPriority': { '$min': '$priority' } " +
+            "} }",
+
+        "{ '$group': { " +
+            "'_id': { 'appId': '$_id.appId', 'datacenter': '$_id.datacenter' }, " +
+            "'deployed': { '$sum': 1 }, " +
+            "'active': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 0 ] }, 1, 0 ] } }, " +
+            "'idle': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 1 ] }, 1, 0 ] } }, " +
+            "'deployedOnly': { '$sum': { '$cond': [ { '$eq': [ '$bestPriority', 2 ] }, 1, 0 ] } } " +
+            "} }",
+
+        "{ '$project': { " +
+            "'_id': 0, " +
+            "'appId': '$_id.appId', " +
+            "'datacenter': '$_id.datacenter', " +
+            "'deployed': 1, 'active': 1, 'deployedOnly': 1, 'idle': 1 " +
+            "} }",
+
+        "{ '$group': { '_id': null, 'data': { '$push': '$$ROOT' } } }",
+        "{ '$project': { '_id': 0, 'runId': null, 'evaluatedAt': null, 'data': 1 } }"
+    })
+    AppDatacenterSummaryResponse findAppsSummaryBySubStack(
+        List<Long> runIds,
+        List<String> stack,
+        List<String> status,
+        List<String> subStack,
+        List<String> appIds
+    );
+
