@@ -1,2 +1,6 @@
 Get-ChildItem build -Recurse -Include mutations.xml,mutations.csv,index.html -ErrorAction SilentlyContinue | Where-Object FullName -match 'pit' | Select-Object FullName
 Select-String -Path build.gradle -Pattern 'pitest','reportDir','outputFormats' -Context 0,3
+
+[xml]$m = Get-Content target\pit-reports\mutations.xml
+$m.mutations.mutation | Where-Object { $_.mutatedClass -match 'WIMA(Service|Controller)' } | Group-Object mutatedClass, status | Select-Object Count, Name
+$m.mutations.mutation | Where-Object { $_.mutatedClass -match 'WIMA(Service|Controller)' -and $_.status -ne 'KILLED' } | Select-Object mutatedMethod, lineNumber, status, description | Format-Table -AutoSize
